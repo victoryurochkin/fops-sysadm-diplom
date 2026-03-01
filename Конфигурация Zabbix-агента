@@ -1,0 +1,6 @@
+# /etc/zabbix/zabbix_agentd.conf
+```
+Server=192.168.1.83
+ServerActive=192.168.1.83
+Hostname=web01 
+```
