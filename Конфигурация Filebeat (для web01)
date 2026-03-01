@@ -1,0 +1,29 @@
+```
+filebeat.inputs:
+- type: log
+  enabled: true
+  paths:
+    - /var/log/nginx/access.log
+    - /var/log/nginx/error.log
+  fields:
+    service: nginx
+    server: web01
+
+output.elasticsearch:
+  hosts: ["https://192.168.1.31:9200"]
+  username: "elastic"
+  password: "*B9=5+iuJwaD2Ivt8=fq"
+  ssl.certificate_authorities: ["/etc/filebeat/http_ca.crt"]
+
+setup.kibana:
+  host: "192.168.1.31:5601"
+
+filebeat.modules:
+- module: nginx
+  access:
+    enabled: true
+    var.paths: ["/var/log/nginx/access.log"]
+  error:
+    enabled: true
+    var.paths: ["/var/log/nginx/error.log"]
+```
