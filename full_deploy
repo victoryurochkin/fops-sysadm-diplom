@@ -112,7 +112,7 @@ cat > $ANSIBLE_DIR/roles/common/tasks/install.yml <<'EOF'
 EOF
 
 cat > $ANSIBLE_DIR/roles/common/handlers/main.yml <<'EOF'
-# handlers для common (если нужны)
+# handlers для common
 EOF
 
 cat > $ANSIBLE_DIR/roles/common/defaults/main.yml <<'EOF'
@@ -432,7 +432,7 @@ EOF
 mkdir -p $TERRAFORM_DIR
 
 cat > $TERRAFORM_DIR/main.tf <<'EOF'
-# Пример Terraform для создания VM в Proxmox (из твоего репо, адаптирован)
+# Пример Terraform для создания VM в Proxmox
 provider "proxmox" {
   pm_api_url      = "https://192.168.1.100:8006/api2/json"
   pm_user         = "root@pam"
