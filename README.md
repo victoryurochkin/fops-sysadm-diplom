@@ -434,37 +434,11 @@ ansible/
 │   └── deploy.yml
 ├── roles/
 │   ├── common/
-│   │   └── tasks/
-│   │       └── main.yml
 │   ├── waf/
-│   │   ├── tasks/
-│   │   │   └── main.yml
-│   │   └── templates/
-│   │       └── docker-compose.yml.j2
 │   ├── nginx/
-│   │   ├── tasks/
-│   │   │   └── main.yml
-│   │   └── templates/
-│   │       └── nginx-balancer.conf.j2
 │   ├── backend/
-│   │   ├── tasks/
-│   │   │   └── main.yml
-│   │   └── templates/
-│   │       ├── nginx-backend.conf.j2
-│   │       └── index.html.j2
 │   ├── zabbix/
-│   │   ├── tasks/
-│   │   │   ├── server.yml
-│   │   │   └── agent.yml
-│   │   └── templates/
-│   │       └── zabbix_agentd.conf.j2
 │   └── elk/
-│       ├── tasks/
-│       │   ├── elasticsearch.yml
-│       │   ├── kibana.yml
-│       │   └── filebeat.yml
-│       └── templates/
-│           └── filebeat.yml.j2
 
 ```
 
