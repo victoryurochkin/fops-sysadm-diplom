@@ -1,0 +1,455 @@
+#!/bin/bash
+set -e
+
+# Корневые директории
+ANSIBLE_DIR="ansible"
+TERRAFORM_DIR="terraform"
+GITHUB_DIR="$ANSIBLE_DIR/.github/workflows"
+
+echo "Создаём структуру Ansible + Terraform + CI/CD..."
+
+# ------------------------
+# Структура Ansible
+mkdir -p $ANSIBLE_DIR/{inventory,group_vars,playbooks,roles/{common,waf,nginx,backend,zabbix,elk}/{tasks,handlers,defaults,vars,meta,templates}}
+mkdir -p $GITHUB_DIR
+
+# ========================
+# Inventory
+cat > $ANSIBLE_DIR/inventory/production.yml <<'EOF'
+all:
+  children:
+    waf:
+      hosts:
+        bunker:
+          ansible_host: 192.168.1.10
+    balancer:
+      hosts:
+        balancer:
+          ansible_host: 192.168.1.90
+    backend:
+      hosts:
+        web01:
+          ansible_host: 192.168.1.88
+        web02:
+          ansible_host: 192.168.1.89
+    zabbix:
+      hosts:
+        zabbix:
+          ansible_host: 192.168.1.83
+    elk:
+      hosts:
+        elk:
+          ansible_host: 192.168.1.31
+  vars:
+    ansible_user: root
+EOF
+
+# ========================
+# Group Vars
+cat > $ANSIBLE_DIR/group_vars/all.yml <<'EOF'
+domain: victoryur.tech
+zabbix_server_ip: 192.168.1.83
+elasticsearch_host: 192.168.1.31
+elasticsearch_port: 9200
+EOF
+
+# ========================
+# Playbooks
+cat > $ANSIBLE_DIR/playbooks/site.yml <<'EOF'
+- hosts: all
+  become: yes
+  roles:
+    - common
+
+- hosts: waf
+  become: yes
+  roles:
+    - waf
+
+- hosts: balancer
+  become: yes
+  roles:
+    - nginx
+
+- hosts: backend
+  become: yes
+  roles:
+    - backend
+    - zabbix
+    - elk
+
+- hosts: zabbix
+  become: yes
+  roles:
+    - zabbix
+
+- hosts: elk
+  become: yes
+  roles:
+    - elk
+EOF
+
+cat > $ANSIBLE_DIR/playbooks/deploy.yml <<'EOF'
+- import_playbook: site.yml
+EOF
+
+# ========================
+# Role: common
+cat > $ANSIBLE_DIR/roles/common/tasks/main.yml <<'EOF'
+- include_tasks: install.yml
+EOF
+
+cat > $ANSIBLE_DIR/roles/common/tasks/install.yml <<'EOF'
+- name: install base packages
+  apt:
+    name:
+      - curl
+      - vim
+      - git
+      - htop
+      - net-tools
+    update_cache: yes
+EOF
+
+cat > $ANSIBLE_DIR/roles/common/handlers/main.yml <<'EOF'
+# handlers для common (если нужны)
+EOF
+
+cat > $ANSIBLE_DIR/roles/common/defaults/main.yml <<'EOF'
+# defaults common
+EOF
+
+cat > $ANSIBLE_DIR/roles/common/meta/main.yml <<'EOF'
+dependencies: []
+EOF
+
+# ========================
+# Role: waf
+cat > $ANSIBLE_DIR/roles/waf/tasks/main.yml <<'EOF'
+- name: install dependencies
+  include_tasks: install.yml
+
+- name: deploy bunkerweb
+  include_tasks: deploy.yml
+EOF
+
+cat > $ANSIBLE_DIR/roles/waf/tasks/install.yml <<'EOF'
+- name: install docker
+  apt:
+    name:
+      - docker.io
+      - docker-compose
+    state: present
+    update_cache: yes
+EOF
+
+cat > $ANSIBLE_DIR/roles/waf/tasks/deploy.yml <<'EOF'
+- name: create directory
+  file:
+    path: /opt/bunkerweb
+    state: directory
+    owner: root
+
+- name: copy docker compose
+  template:
+    src: docker-compose.yml.j2
+    dest: /opt/bunkerweb/docker-compose.yml
+
+- name: start bunkerweb
+  command: docker compose up -d
+  args:
+    chdir: /opt/bunkerweb
+EOF
+
+cat > $ANSIBLE_DIR/roles/waf/handlers/main.yml <<'EOF'
+# handlers for BunkerWeb
+EOF
+
+cat > $ANSIBLE_DIR/roles/waf/defaults/main.yml <<'EOF'
+# defaults for BunkerWeb
+EOF
+
+cat > $ANSIBLE_DIR/roles/waf/meta/main.yml <<'EOF'
+dependencies: []
+EOF
+
+cat > $ANSIBLE_DIR/roles/waf/templates/docker-compose.yml.j2 <<'EOF'
+version: '3'
+services:
+  bunkerweb:
+    image: bunkerity/bunkerweb-all-in-one:1.6.7
+    ports:
+      - "80:8080"
+      - "443:8443"
+    restart: always
+    environment:
+      - SERVER_NAME={{ domain }}
+      - USE_REVERSE_PROXY=yes
+      - REVERSE_PROXY_HOST_1=http://192.168.1.90
+EOF
+
+# ========================
+# Role: nginx
+cat > $ANSIBLE_DIR/roles/nginx/tasks/main.yml <<'EOF'
+- include_tasks: install.yml
+- include_tasks: config.yml
+EOF
+
+cat > $ANSIBLE_DIR/roles/nginx/tasks/install.yml <<'EOF'
+- name: install nginx
+  apt:
+    name: nginx
+    state: present
+    update_cache: yes
+EOF
+
+cat > $ANSIBLE_DIR/roles/nginx/tasks/config.yml <<'EOF'
+- name: configure nginx
+  template:
+    src: nginx-balancer.conf.j2
+    dest: /etc/nginx/sites-available/default
+
+- name: restart nginx
+  service:
+    name: nginx
+    state: restarted
+EOF
+
+cat > $ANSIBLE_DIR/roles/nginx/handlers/main.yml <<'EOF'
+- name: restart nginx
+  service:
+    name: nginx
+    state: restarted
+EOF
+
+cat > $ANSIBLE_DIR/roles/nginx/meta/main.yml <<'EOF'
+dependencies: []
+EOF
+
+cat > $ANSIBLE_DIR/roles/nginx/templates/nginx-balancer.conf.j2 <<'EOF'
+upstream backend_cluster {
+    least_conn;
+    server 192.168.1.88:80;
+    server 192.168.1.89:80;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    server_name {{ domain }};
+    location / {
+        proxy_pass http://backend_cluster;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+EOF
+
+# ========================
+# Role: backend
+cat > $ANSIBLE_DIR/roles/backend/tasks/main.yml <<'EOF'
+- include_tasks: install.yml
+- include_tasks: deploy.yml
+EOF
+
+cat > $ANSIBLE_DIR/roles/backend/tasks/install.yml <<'EOF'
+- name: install nginx
+  apt:
+    name: nginx
+    state: present
+    update_cache: yes
+EOF
+
+cat > $ANSIBLE_DIR/roles/backend/tasks/deploy.yml <<'EOF'
+- name: deploy config
+  template:
+    src: nginx-backend.conf.j2
+    dest: /etc/nginx/sites-available/default
+
+- name: deploy index
+  template:
+    src: index.html.j2
+    dest: /var/www/html/index.html
+
+- name: deploy .node
+  copy:
+    content: "{{ inventory_hostname }}"
+    dest: /var/www/html/.node
+
+- name: restart nginx
+  service:
+    name: nginx
+    state: restarted
+EOF
+
+cat > $ANSIBLE_DIR/roles/backend/meta/main.yml <<'EOF'
+dependencies: []
+EOF
+
+cat > $ANSIBLE_DIR/roles/backend/templates/nginx-backend.conf.j2 <<'EOF'
+server {
+    listen 80;
+    root /var/www/html;
+    index index.html;
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}
+EOF
+
+cat > $ANSIBLE_DIR/roles/backend/templates/index.html.j2 <<'EOF'
+<html>
+<head><title>{{ inventory_hostname }}</title></head>
+<body><h1>{{ inventory_hostname }}</h1></body>
+</html>
+EOF
+
+# ========================
+# Role: zabbix
+cat > $ANSIBLE_DIR/roles/zabbix/tasks/main.yml <<'EOF'
+- include_tasks: agent.yml
+EOF
+
+cat > $ANSIBLE_DIR/roles/zabbix/tasks/agent.yml <<'EOF'
+- name: install zabbix agent
+  apt:
+    name: zabbix-agent
+    state: present
+    update_cache: yes
+
+- name: configure agent
+  template:
+    src: zabbix_agentd.conf.j2
+    dest: /etc/zabbix/zabbix_agentd.conf
+
+- name: restart agent
+  service:
+    name: zabbix-agent
+    state: restarted
+EOF
+
+cat > $ANSIBLE_DIR/roles/zabbix/templates/zabbix_agentd.conf.j2 <<'EOF'
+Server={{ zabbix_server_ip }}
+ServerActive={{ zabbix_server_ip }}
+Hostname={{ inventory_hostname }}
+EOF
+
+cat > $ANSIBLE_DIR/roles/zabbix/meta/main.yml <<'EOF'
+dependencies: []
+EOF
+
+# ========================
+# Role: elk
+cat > $ANSIBLE_DIR/roles/elk/tasks/main.yml <<'EOF'
+- name: install core services
+  include_tasks: services.yml
+EOF
+
+cat > $ANSIBLE_DIR/roles/elk/tasks/services.yml <<'EOF'
+- name: install elasticsearch
+  apt:
+    name: elasticsearch
+    state: present
+    update_cache: yes
+
+- name: start elasticsearch
+  service:
+    name: elasticsearch
+    state: started
+
+- name: install kibana
+  apt:
+    name: kibana
+    state: present
+    update_cache: yes
+
+- name: start kibana
+  service:
+    name: kibana
+    state: started
+
+- name: install filebeat
+  apt:
+    name: filebeat
+    state: present
+    update_cache: yes
+
+- name: configure filebeat
+  template:
+    src: filebeat.yml.j2
+    dest: /etc/filebeat/filebeat.yml
+
+- name: start filebeat
+  service:
+    name: filebeat
+    state: restarted
+EOF
+
+cat > $ANSIBLE_DIR/roles/elk/templates/filebeat.yml.j2 <<'EOF'
+filebeat.inputs:
+- type: log
+  paths:
+    - /var/log/nginx/access.log
+    - /var/log/nginx/error.log
+output.elasticsearch:
+  hosts: ["http://{{ elasticsearch_host }}:{{ elasticsearch_port }}"]
+EOF
+
+cat > $ANSIBLE_DIR/roles/elk/meta/main.yml <<'EOF'
+dependencies: []
+EOF
+
+# ========================
+# GitHub Actions (CI/CD)
+cat > $GITHUB_DIR/deploy.yml <<'EOF'
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install SSH key
+        uses: webfactory/ssh-agent@v0.5.4
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Run Ansible playbook
+        run: |
+          cd ansible
+          ansible-playbook -i inventory/production.yml playbooks/deploy.yml
+EOF
+
+# ========================
+# Terraform
+mkdir -p $TERRAFORM_DIR
+
+cat > $TERRAFORM_DIR/main.tf <<'EOF'
+# Пример Terraform для создания VM в Proxmox (из твоего репо, адаптирован)
+provider "proxmox" {
+  pm_api_url      = "https://192.168.1.100:8006/api2/json"
+  pm_user         = "root@pam"
+  pm_password     = var.pm_password
+  pm_tls_insecure = true
+}
+
+# Примеры VM
+resource "proxmox_vm_qemu" "web01" { ... }  # аналогично web02, zabbix, elk, balancer, bunker
+EOF
+
+cat > $TERRAFORM_DIR/variables.tf <<'EOF'
+variable "pm_password" {
+  type = string
+  description = "Пароль root для Proxmox"
+}
+EOF
+
+echo "Готово! Репозиторий с Ansible + CI/CD + Terraform создан."
+echo "Запускать: cd ansible && ansible-playbook -i inventory/production.yml playbooks/site.yml"
