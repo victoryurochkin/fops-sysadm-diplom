@@ -703,7 +703,9 @@ output "vm_ips" {
 EOF
 
 # ============================================
+
 # 14. README.md для репозитория
+
 cat > README.md <<'EOF'
 # Проект инфраструктуры victoryur.tech
 
@@ -727,3 +729,51 @@ cat > README.md <<'EOF'
 - Доступ по SSH к серверам (ключи)
 - Настроенный Proxmox с шаблонами ОС
 - Переменные окружения или vault для паролей
+
+## Запуск
+
+1. Создать ВМ через Terraform:
+
+cd terraform
+terraform init
+terraform apply -var="pm_password=your_password"
+
+2. Настроить серверы через Ansible:
+
+cd ansible
+ansible-playbook -i inventory/production.yml playbooks/site.yml
+
+
+## Примечания
+
+- Пароли хранить в зашифрованном виде (ansible-vault)
+- Для корректной работы Zabbix-сервера необходимо вручную добавить хосты в веб-интерфейсе
+- В WAF необходимо настроить правила для доменов (через веб-интерфейс или переменные)
+
+# ============================================
+# 15. Файл с инструкцией по шифрованию секретов
+cat > $ANSIBLE_DIR/README-ansible.md <<'EOF'
+# Работа с секретами (Ansible Vault)
+
+1. Создать зашифрованный файл с паролями:
+
+ansible-vault create group_vars/all.vault.yml
+
+Поместить туда:
+zabbix_db_password: "secure_password"
+elastic_password: "*B9=5+iuJwaD2Ivt8=fq"
+kibana_system_password: "aSGYpvf6mtoQPT2MkMXa"
+
+2. В основном файле group_vars/all.yml заменить значения на:
+
+zabbix_db_password: "{{ vault_zabbix_db_password }}"
+elastic_password: "{{ vault_elastic_password }}"
+kibana_system_password: "{{ vault_kibana_system_password }}"
+
+3. Запускать плейбуки с флагом --ask-vault-pass или настроить файл с паролем.
+EOF
+
+echo "Полная структура проекта успешно создана!"
+echo "Каталоги: $ANSIBLE_DIR, $TERRAFORM_DIR, .github"
+echo "Для развёртывания следуйте инструкциям в README.md"
+
