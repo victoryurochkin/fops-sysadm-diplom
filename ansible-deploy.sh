@@ -2,11 +2,13 @@
 
 set -e
 
-# Устанавливаем Ansible
+# ------------------------
+# Установка Ansible
 echo "Устанавливаем Ansible..."
 apt update && apt install -y ansible git vim curl
 
-# Создаём структуру директорий
+# ------------------------
+# Создание структуры каталогов
 echo "Создаём структуру репозитория Ansible..."
 mkdir -p ansible/{inventory,group_vars,playbooks,roles/{common,waf/nginx,backend,zabbix,elk}/{tasks,templates}}
 
@@ -324,4 +326,6 @@ output.elasticsearch:
   hosts: ["http://{{ elasticsearch_host }}:{{ elasticsearch_port }}"]
 EOF
 
-echo "Структура Ansible успешно создана в папке ansible/"
+# ------------------------
+echo "Полная структура Ansible успешно создана в папке ansible/"
+echo "Для запуска плейбука: cd ansible && ansible-playbook -i inventory/production.yml playbooks/site.yml"
